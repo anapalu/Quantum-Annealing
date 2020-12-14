@@ -94,9 +94,9 @@ function ensure_different_problem(is1, sol1, is2, sol2) ##returns 0 for differen
     end
 end
 
-n = 10 ## n = 12 takes about 4 seconds to generate 3SAT
-inst1, good_combs1 = kSAT(n, 3)
-println("inst1 ", inst1)
-inst2, good_combs2 = kSAT(n, 3)
-println("inst2 ", inst2)
-ensure_different_problem(inst1, good_combs1, inst2, good_combs2)
+#n = 10 ## n = 12 takes about 4 seconds to generate 3SAT
+#inst1, good_combs1 = kSAT(n, 3)
+#println("inst1 ", inst1)
+#inst2, good_combs2 = kSAT(n, 3)
+#println("inst2 ", inst2)
+#ensure_different_problem(inst1, good_combs1, inst2, good_combs2)
