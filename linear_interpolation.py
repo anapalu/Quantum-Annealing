@@ -47,7 +47,6 @@ print('n_points', n_points)
 
 
 
-fidelity = []
 mean_E = []
 energies = np.zeros((n_points, dims_matrices))
 hamm_dist = []
