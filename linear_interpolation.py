@@ -79,22 +79,31 @@ for i in range(n_points):
         gaps2 += [0]
     ##############
 
-    
+### GAP
+gp = gaps[0]
+kkk = 0
+while gp != min(gaps):
+    kkk += 1
+    gp = gaps[kkk]
+print('minimum gap =', min(gaps), ' located at s =', kkk/n_points)    
+##
+gp = gaps2[0]
+kkk = 0
+while gp != min(gaps2):
+    kkk += 1
+    gp = gaps2[kkk]
+print('minimum gap2 =', min(gaps2), ' located at s =', kkk/n_points)
+  
 
 ##### Get true solution
 eigvals_Hf, eigvects_Hf = eigh(H_s(1))
-eigvals_Hf_unique = np.unique(eigvals_Hf)
 min_eigval_Hf = eigvals_Hf[0]
-
-
 print('eigvals_Hf', eigvals_Hf)
-
 
 Hss = [spectral_norm(H_s(s)) for s in np.linspace(0, 1, 100)]
 max_Hss = max(Hss)
 
 print('adiabatic theorem bound on T', spectral_norm(H_f - H_i) * max_Hss /min(gaps)**2 ) 
-
 print('adiabatic theorem bound on T for gaps2', spectral_norm(H_f - H_i) * max_Hss /min(gaps2)**2 ) 
 
 
@@ -108,37 +117,12 @@ xaxis = eses ; xlabel = 's'
 fig, ax = plt.subplots(figsize = figsz)
 ylabel = 'energy'
 for i in range(dims_matrices):
-    
     yaxis = energies[:,i]
     fig, ax = simple_plot(fig, ax, xaxis, yaxis, xlabel, ylabel, markr = 'o', alpha = 0.4, reduce = True)
-# yaxis = np.real(mean_E)
-# fig, ax = simple_plot(fig, ax, xaxis, yaxis, xlabel, ylabel, markr = 'kx', reduce = True)
 plt.show()
 
 
-### GAP
-gp = gaps[0]
-kkk = 0
-while gp != min(gaps):
-    kkk += 1
-    gp = gaps[kkk]
-print('minimum gap =', min(gaps), ' located at s =', kkk/n_points)    
 
-
-gp = gaps2[0]
-kkk = 0
-while gp != min(gaps2):
-    kkk += 1
-    gp = gaps2[kkk]
-print('minimum gap2 =', min(gaps2), ' located at s =', kkk/n_points)
-
-
-## Noneq free energy <-- DOESN'T SAY MUCH NEW, BASICALLY FOLLOWS MEAN ENERGY
-fig, ax = plt.subplots(figsize = figsz)
-ylabel = '$\\mathcal{F}_{neq}$'
-yaxis = np.real(F_neq)
-fig, ax = simple_plot(fig, ax, xaxis, yaxis, xlabel, ylabel, reduce = True)
-plt.show()       
 
 
 
