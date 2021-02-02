@@ -95,14 +95,12 @@ while gp != min(gaps2):
 print('minimum gap2 =', min(gaps2), ' located at s =', kkk/n_points)
   
 
-##### Get true solution
+##### Get adiabatic bound on T_anneal
 eigvals_Hf, eigvects_Hf = eigh(H_s(1))
 min_eigval_Hf = eigvals_Hf[0]
 print('eigvals_Hf', eigvals_Hf)
-
 Hss = [spectral_norm(H_s(s)) for s in np.linspace(0, 1, 100)]
 max_Hss = max(Hss)
-
 print('adiabatic theorem bound on T', spectral_norm(H_f - H_i) * max_Hss /min(gaps)**2 ) 
 print('adiabatic theorem bound on T for gaps2', spectral_norm(H_f - H_i) * max_Hss /min(gaps2)**2 ) 
 
@@ -111,7 +109,6 @@ eses = np.linspace(0, 1, n_points)
 figsz = (12, 16)
 xaxis = eses ; xlabel = 's'
 
-
 ################################# PLOTTING
 ### ENERGY LANDSCAPE DURING THE ANNEAL
 fig, ax = plt.subplots(figsize = figsz)
@@ -119,6 +116,13 @@ ylabel = 'energy'
 for i in range(dims_matrices):
     yaxis = energies[:,i]
     fig, ax = simple_plot(fig, ax, xaxis, yaxis, xlabel, ylabel, markr = 'o', alpha = 0.4, reduce = True)
+plt.show()
+
+fig, ax = plt.subplots(figsize = figsz)
+ylabel = 'gap'
+fig, ax = simple_plot(fig, ax, xaxis, gaps, xlabel, ylabel, markr = 'o', alpha = 0.4, reduce = True)
+fig, ax = simple_plot(fig, ax, xaxis, gaps2, xlabel, ylabel, markr = 'o', alpha = 0.4, reduce = True)
+ax.legend(labels = ['1-0', '2-0'])
 plt.show()
 
 
