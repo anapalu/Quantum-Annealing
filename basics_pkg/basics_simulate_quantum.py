@@ -2,7 +2,7 @@ import numpy as np
 from qutip import Qobj
 
 import sys
-sys.path.append('/home/ana/Documents/PhD')
+sys.path.append('/home/ana/Documents/PhD/my-projects/')
 from basics_pkg.basics_pauli import Sigma, arbitrary_rotation_spins
 from basics_pkg.basics_molecular_Hamiltonian import get_molecular_Hamiltonian
 from basics_pkg.basics_manage_data import retrieve_instances
@@ -70,9 +70,10 @@ def np2qt(mat, N): ### N is the number of spins
 
 
 def define_Hs(N_qubits, final_hamiltonian, initial_hamiltonian, annealing_schedule, catalyst = 'None', catalyst_interaction = 'None', \
-     coord_catalyst = 1, rotate=True, h_mean = 1, W = 0, risingJ = 1334, risingW = 954, randomspinnetX_J = 16234, randomspinnetX_W = 954, \
-     mxdf = 3, number_of_ancillas = 0, return_HiHf = False):
+     coord_catalyst = 1, rotate=True, h_mean_f = 1, W_f = 0, h_mean_i = 1, W_i = 0, seedJ_f = 1334, seedW_f = 954, seedJ_i = 16234, seedW_i = 954, \
+     seedJ_cat = 124, seedW_cat = 6543, h_mean_cat = 1, W_cat = 0, mxdf = 3, number_of_ancillas = 0, return_HiHf = False):
 
+    ############### BASIC DEFINITIONS
     dims_matrices = 2**N_qubits
     Sigma_dict = {} ### Nested dictionary, first set coord (0--> 'z', 1 --> 'x', 2 --> 'y') and inside a list/array containing all the corresponding
                 ### matrices, ordered by qubit number
@@ -83,18 +84,63 @@ def define_Hs(N_qubits, final_hamiltonian, initial_hamiltonian, annealing_schedu
 
 
     ############################## TRIVIAL HAMILTONIANS
+    def staggered(): ### from "Speedup of the Quantum Adiabatic Algorithm using Delocalization Catalysis", C. Cao et al (Dec. 2020)
+        H = np.zeros((dims_matrices, dims_matrices), dtype = 'complex128')
+        for i in range(N_qubits):
+            H += (-1)**i * Sigma_dict[i][1] 
+        return H
+
+    def bit_struct():
+        H = np.zeros((dims_matrices, dims_matrices), dtype = 'complex128')
+        I = np.eye(dims_matrices)
+        for i in range(N_qubits):
+            H += 0.5 * (I - Sigma_dict[i][1])
+        return H
+
+    def disrespect_bit_struct():
+        phi0 = np.zeros(dims_matrices) 
+        phi0[-1] = np.sqrt(dims_matrices/3)
+        phi0[0] = np.sqrt(dims_matrices/3) 
+        phi0[4] = np.sqrt(dims_matrices/3)
+        ### write phi0 as matrix, see ptraces ############################################
+        H = np.eye(dims_matrices) - 1/dims_matrices *(np.kron(phi0, phi0).reshape(dims_matrices, dims_matrices))
+        return H
+
     def transverse_field():
         I = np.eye(dims_matrices)
         H = np.zeros((dims_matrices, dims_matrices), dtype = 'complex128')
         for i in range(N_qubits):
             H += 0.5 * (I - Sigma_dict[i][1])
         return H
+    
+    def bitflipnoise():
+        phi0 = np.ones(dims_matrices)
+        return np.eye(dims_matrices) - 1/dims_matrices *(np.kron(phi0, phi0).reshape(dims_matrices, dims_matrices))
 
     def all_spins_up():
         I = np.eye(dims_matrices)
         H = np.zeros((dims_matrices, dims_matrices), dtype = 'complex128')
         for i in range(N_qubits):
             H += 0.5 * (I - Sigma_dict[i][0])
+        return H
+
+    def phaseflipnoise():
+        phi0 = np.zeros(dims_matrices)  ## all spins up
+        phi0[0] = np.sqrt(dims_matrices)
+        H = np.eye(dims_matrices) - 1/dims_matrices *(np.kron(phi0, phi0).reshape(dims_matrices, dims_matrices))
+        return H
+
+
+    def Sigmas():
+        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
+        for i in range(N_qubits):
+            H += Sigma_dict[i][coord_catalyst] #0.5 * Sigma_dict[i][coord_catalyst]
+        return H
+
+    def Sigmas_Z():
+        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
+        for i in range(N_qubits):
+            H += Sigma_dict[i][0] # 0.5 * 
         return H
 
 
@@ -116,7 +162,7 @@ def define_Hs(N_qubits, final_hamiltonian, initial_hamiltonian, annealing_schedu
             print('target state', s0)
         return np.eye(2**N_qubits) - np.kron(s0, s0).reshape(2**N_qubits, 2**N_qubits)
 
-    def kSAT():
+    def kSAT(mxdf):
         k = 3; n = N_qubits - number_of_ancillas
         filename = '/home/ana/Documents/PhD/kSAT/instances/{}sat_n{}_seed1234.txt'.format(k, n) #'/home/ana/Documents/PhD/kSAT/instances/{}sat_n{}_seed1234_mixeddiff.txt'.format(k, n)
         insts, sols = retrieve_instances(filename, k)
@@ -141,13 +187,13 @@ def define_Hs(N_qubits, final_hamiltonian, initial_hamiltonian, annealing_schedu
         
         return H
 
-    def ising_classical():
+    def ising_classical(seedJ, seedW, h_mean, W, coord = 0): ## coord = 0 is in z, coord = 1 is in x
         ## Generate random couplings
         Js = 1
-        np.random.seed(risingJ)
+        np.random.seed(seedJ)
         J = Js * (2 * np.random.rand(N_qubits, N_qubits) - 1)
         ## Generate random fields
-        np.random.seed(risingW)
+        np.random.seed(seedW)
         hi = W * (2 * np.random.rand(N_qubits) - 1)
         h = h_mean * np.ones(N_qubits) + hi
 
@@ -155,18 +201,17 @@ def define_Hs(N_qubits, final_hamiltonian, initial_hamiltonian, annealing_schedu
         H = np.zeros((dims_matrices, dims_matrices), 'complex128')
         for i in range(N_qubits):
             for j in range(i):
-                H += J[i, j] * np.dot(Sigma_dict[i][0], Sigma_dict[j][0])
-            H += h[i] * Sigma_dict[i][0]
+                H += J[i, j] * np.dot(Sigma_dict[i][coord], Sigma_dict[j][coord])
+            H += h[i] * Sigma_dict[i][coord]
         return H
 
-
-    def ising_classical_Xseed():
+    def ising_quantum(seedJ, seedW, h_mean, W, coord = 0): ### if coord = 0 the transverse field is in x and the couplings in x, if coord = 1 viceversa
         ## Generate random couplings
         Js = 1
-        np.random.seed(randomspinnetX_J)
+        np.random.seed(seedJ)
         J = Js * (2 * np.random.rand(N_qubits, N_qubits) - 1)
         ## Generate random fields
-        np.random.seed(randomspinnetX_W)
+        np.random.seed(seedW)
         hi = W * (2 * np.random.rand(N_qubits) - 1)
         h = h_mean * np.ones(N_qubits) + hi
 
@@ -174,201 +219,11 @@ def define_Hs(N_qubits, final_hamiltonian, initial_hamiltonian, annealing_schedu
         H = np.zeros((dims_matrices, dims_matrices), 'complex128')
         for i in range(N_qubits):
             for j in range(i):
-                H += J[i, j] * np.dot(Sigma_dict[i][0], Sigma_dict[j][0])
-            H += h[i] * Sigma_dict[i][0]
+                H += J[i, j] * np.dot(Sigma_dict[i][(coord+1)%2], Sigma_dict[j][(coord+1)%2])
+            H += h[i] * Sigma_dict[i][coord]
         return H
 
-    def ising_classical_X():
-        ## Generate random couplings
-        Js = 1
-        np.random.seed(randomspinnetX_J)
-        J = Js * (2 * np.random.rand(N_qubits, N_qubits) - 1)
-        ## Generate random fields
-        np.random.seed(randomspinnetX_W)
-        hi = W * (2 * np.random.rand(N_qubits) - 1)
-        h = h_mean * np.ones(N_qubits) + hi
-
-        ## Generate Hamiltonian
-        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
-        for i in range(N_qubits):
-            for j in range(i):
-                H += J[i, j] * np.dot(Sigma_dict[i][1], Sigma_dict[j][1])
-            H += h[i] * Sigma_dict[i][1]
-        return H
-
-    def ising_classical_X_inverted():
-        ## Generate random couplings
-        Js = 1
-        np.random.seed(randomspinnetX_J)
-        J = - Js * (2 * np.random.rand(N_qubits, N_qubits) - 1)
-        ## Generate random fields
-        np.random.seed(randomspinnetX_W)
-        hi = W * (2 * np.random.rand(N_qubits) - 1)
-        h = h_mean * np.ones(N_qubits) + hi
-
-        ## Generate Hamiltonian
-        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
-        for i in range(N_qubits):
-            for j in range(i):
-                H += J[i, j] * np.dot(Sigma_dict[i][1], Sigma_dict[j][1])
-            H += h[i] * Sigma_dict[i][1]
-        return H
-
-    def ising_classical_X_complementary():
-        ## Generate random couplings
-        Js = 1
-        np.random.seed(risingJ)
-        jotas = (2 * np.random.rand(N_qubits, N_qubits) - 1)
-        jotas = np.sign(jotas) * (Js - np.abs(jotas))
-        J = jotas
-        ## Generate random fields
-        np.random.seed(randomspinnetX_W)
-        hi = W * (2 * np.random.rand(N_qubits) - 1)
-        h = h_mean * np.ones(N_qubits) + hi
-
-        ## Generate Hamiltonian
-        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
-        for i in range(N_qubits):
-            for j in range(i):
-                H += J[i, j] * np.dot(Sigma_dict[i][1], Sigma_dict[j][1])
-            H += h[i] * Sigma_dict[i][1]
-        return H
-    
-    def ising_classical_X_complementary_plus_noise():
-        ## Generate random couplings
-        Js = 1
-        np.random.seed(risingJ)
-        jotas = (2 * np.random.rand(N_qubits, N_qubits) - 1)
-        jotas = -np.sign(jotas) * (Js - np.abs(jotas))
-        noise = 1*np.random.randint(-1, 2, size=(N_qubits, N_qubits))
-        J = jotas + noise
-        ## Generate random fields
-        np.random.seed(randomspinnetX_W)
-        hi = W * (2 * np.random.rand(N_qubits) - 1)
-        h = h_mean * np.ones(N_qubits) + hi
-
-        ## Generate Hamiltonian
-        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
-        for i in range(N_qubits):
-            for j in range(i):
-                H += J[i, j] * np.dot(Sigma_dict[i][1], Sigma_dict[j][1])
-            H += h[i] * Sigma_dict[i][1]
-        return H
-
-    def ising_classical_X_adhoc(): ## targeting Ising for seed 2 (N=5) (we want to get close to its inverse here)
-                                    ### THE RESULT WAS NEGATIVE 
-        ## Generate random couplings
-        J = np.array([[0.1, 0.94, -0.1, 0.13, 0.16], 
-        [0.34, 0.63, -0.24,0.38, 0.42],
-        [-0.24, -0.07, 0.7, -0.01, 0.6],
-        [-0.55, -0.68, 0.011, -0.69, 0.81],
-        [-0.03, 0.83, 0.17, 0.82, 0.72]])
-        ## Generate random fields
-        np.random.seed(randomspinnetX_W)
-        hi = W * (2 * np.random.rand(N_qubits) - 1)
-        h = h_mean * np.ones(N_qubits) + hi
-
-        ## Generate Hamiltonian
-        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
-        for i in range(N_qubits):
-            for j in range(i):
-                H += J[i, j] * np.dot(Sigma_dict[i][1], Sigma_dict[j][1])
-            H += h[i] * Sigma_dict[i][1]
-        return H
-
-
-    def spin_network():
-        ## Generate random couplings
-        Js = 1
-        np.random.seed(risingJ)
-        J = Js * (2 * np.random.rand(N_qubits, N_qubits) - 1)
-        ## Generate random fields
-        np.random.seed(risingW)
-        hi = W * (2 * np.random.rand(N_qubits) - 1)
-        h = h_mean * np.ones(N_qubits) + hi
-
-        ## Generate Hamiltonian
-        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
-        for i in range(N_qubits):
-            for j in range(i):
-                H += J[i, j] * np.dot(Sigma_dict[i][1], Sigma_dict[j][1])
-            H += h[i] * Sigma_dict[i][0]
-        return H
-
-
-    def spin_network_X_nosmessedscale():
-        Js = 1
-        np.random.seed(randomspinnetX_J)
-        J = Js * (2 * np.random.rand(N_qubits, N_qubits) - 1)
-        np.random.seed(randomspinnetX_W)
-        hi = W * (2 * np.random.rand(N_qubits) - 1)
-        h = h_mean * np.ones(N_qubits) + hi
-
-        ## SPIN NETWORK HAMILTONIAN
-        I = np.eye(dims_matrices)
-        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
-        for i in range(N_qubits):
-            for j in range(i):
-                H += J[i, j] * np.dot(Sigma_dict[i][1], Sigma_dict[j][1]) 
-            H += h[i] * Sigma_dict[i][1]
-        return H
-
-
-
-
-    def spin_network_X():
-        Js = 1
-        np.random.seed(randomspinnetX_J)
-        J = Js * (2 * np.random.rand(N_qubits, N_qubits) - 1)
-        np.random.seed(randomspinnetX_W)
-        hi = W * (2 * np.random.rand(N_qubits) - 1)
-        h = h_mean * np.ones(N_qubits) + hi
-
-        ## SPIN NETWORK HAMILTONIAN
-        I = np.eye(dims_matrices)
-        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
-        for i in range(N_qubits):
-            for j in range(i):
-                H += J[i, j] * 0.25 * np.dot((Sigma_dict[i][1] + I), (Sigma_dict[j][1] - I)) ##### OJO CON ESTO, WHY SIGNS?
-            H += h[i] * Sigma_dict[i][1]
-        amplification_spnX = 3
-        H += amplification_spnX*I
-        print('Spin network X parameters h=', h_mean, ', W=', W, ', amplification (FOR NOW, THIS IS AN INTERNAL PARAMETER): ', amplification_spnX)
-        return H
-
-    def spinnetworkX_perp(): ## completely perpendicular to the one in z
-        ## Generate random couplings
-        Js = 1
-        np.random.seed(randomspinnetX_J)
-        J = Js * (2 * np.random.rand(N_qubits, N_qubits) - 1)
-        ## Generate random fields
-        np.random.seed(randomspinnetX_W)
-        hi = W * (2 * np.random.rand(N_qubits) - 1)
-        h = h_mean * np.ones(N_qubits) + hi
-
-        ## Generate Hamiltonian
-        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
-        for i in range(N_qubits):
-            for j in range(i):
-                H += J[i, j] * np.dot(Sigma_dict[i][0], Sigma_dict[j][0])
-            H += h[i] * Sigma_dict[i][1]
-        return H
-
-    def Sigmas():
-        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
-        for i in range(N_qubits):
-            H += Sigma_dict[i][coord_catalyst] #0.5 * Sigma_dict[i][coord_catalyst]
-        return H
-
-    def Sigmas_Z():
-        H = np.zeros((dims_matrices, dims_matrices), 'complex128')
-        for i in range(N_qubits):
-            H += Sigma_dict[i][0] # 0.5 * 
-        return H
-
-    def bitflipnoise():
-        phi0 = np.ones(dims_matrices)
-        return np.eye(dims_matrices) - 1/dims_matrices *(np.kron(phi0, phi0).reshape(dims_matrices, dims_matrices)) 
+     
 
 
         ##################################################3
@@ -390,38 +245,21 @@ def define_Hs(N_qubits, final_hamiltonian, initial_hamiltonian, annealing_schedu
         H_f = Grover()
     
     elif final_hamiltonian == 'kSAT':
-        H_f = kSAT()
+        H_f = kSAT(mxdf)
 
     elif final_hamiltonian == 'Ising':
-        H_f = ising_classical()
-
-    elif final_hamiltonian == 'Ising Z Xseed':
-        H_f = ising_classical_Xseed() 
+        H_f = ising_classical(seedJ_f, seedW_f, h_mean_f, W_f)
 
     elif final_hamiltonian == 'Ising X':
-        H_f = ising_classical_X()
+        H_f = ising_classical(seedJ_f, seedW_f, h_mean_f, W_f, coord = 1)
 
-    elif final_hamiltonian == 'Ising X inverted':
-        H_f = ising_classical_X_inverted()
-
-    elif final_hamiltonian == 'Ising X complementary':
-        H_f = ising_classical_X_complementary()
-
-    elif final_hamiltonian == 'Ising X complementary plus noise':
-        H_f = ising_classical_X_complementary_plus_noise()
-
-    elif final_hamiltonian == 'Ising X ad hoc':
-        H_f = ising_classical_X_adhoc()
-
-    elif final_hamiltonian == 'spin network':
-        H_f = spin_network()
-        print('Spin network parameters h=', h_mean, ', W=', W)
+    elif final_hamiltonian == 'Ising quantum':
+        H_f = ising_quantum(seedJ_f, seedW_f,  h_mean_f, W_f)
+        print('Quantum Ising parameters (final Hamiltonian) h=', h_mean_f, ', W=', W_f, 'couplings in z and transverse field in x')
     
     elif final_hamiltonian == 'spin network X':
-        # H_f = spin_network_X()
-        H_f = spin_network_X_nosmessedscale()
-        # H_f = spinnetworkX_perp()
-        print('Spin network X parameters h=', h_mean, ', W=', W)
+        H_f = ising_quantum(seedJ_f, seedW_f,  h_mean_f, W_f, coord = 1)
+        print('Quantum Ising parameters (final Hamiltonian) h=', h_mean_f, ', W=', W_f, 'couplings in x and transverse field in z')
 
     else:
         print('You have not  selected any of the available final Hamiltonians')
@@ -430,77 +268,52 @@ def define_Hs(N_qubits, final_hamiltonian, initial_hamiltonian, annealing_schedu
 
 
 
-    ## Initial Hamiltonain --> transverse field / all spins up
-    if initial_hamiltonian == 'transverse field':
-        H_i = transverse_field()
+    ########################### Initial Hamiltonain
 
-
-    elif initial_hamiltonian == 'all spins up': ## parallel magnetic field plus some energy shift so that energies are contained within [0, N_qubits]
-        H_i = all_spins_up()
-
-    elif initial_hamiltonian == 'Sigmas Z':
+    if initial_hamiltonian == 'Sigmas Z':
         H_i = Sigmas_Z()
 
-    elif initial_hamiltonian == 'all spins down': ## parallel magnetic field plus some energy shift so that energies are contained within [0, N_qubits]
-        H_i = all_spins_up()
-        for i in range(N_qubits):
-            H_i += Sigma_dict[i][0]
+    elif initial_hamiltonian == 'Ising':
+        H_i = ising_classical(seedJ_i, seedW_i, h_mean_i, W_i)
 
     elif initial_hamiltonian == 'Ising X':
-        H_i = ising_classical_X()
+        H_i = ising_classical(seedJ_i, seedW_i, h_mean_i, W_i, coord=1)
 
-    elif initial_hamiltonian == 'Ising Z Xseed':
-        H_i = ising_classical_Xseed() 
+    elif initial_hamiltonian == 'Ising quantum':
+        H_i = ising_quantum(seedJ_i, seedW_i, h_mean_i, W_i)
+        print('Quantum Ising parameters (initial Hamiltonian) h=', h_mean_i, ', W=', W_i, 'couplings in z, transverse field in x')
 
-    elif initial_hamiltonian == 'Ising X inverted':
-        H_i = ising_classical_X_inverted()
-
-    elif initial_hamiltonian == 'Ising X complementary':
-        H_i = ising_classical_X_complementary()
-
-    elif initial_hamiltonian == 'Ising X complementary plus noise':
-        H_i = ising_classical_X_complementary_plus_noise()
-
-    elif initial_hamiltonian == 'Ising X ad hoc':
-        H_i = ising_classical_X_adhoc()
-
-    elif initial_hamiltonian == 'spin network X':
-        # H_i = spin_network_X()
-        H_i = spin_network_X_nosmessedscale()
-        # H_f = spinnetworkX_perp()
-        print('Spin network X parameters h=', h_mean, ', W=', W)
+    elif initial_hamiltonian == 'Ising quantum X':
+        H_i = ising_quantum(seedJ_i, seedW_i, h_mean_i, W_i, coord = 1)
+        print('Quantum Ising parameters (initial Hamiltonian) h=', h_mean_i, ', W=', W_i, 'couplings in x, transverse field in z')
 
     elif initial_hamiltonian == 'Sigmas':
         H_i = Sigmas()
 
-    elif initial_hamiltonian == 'bit flip noisy': # what happens when we designate directly an equal superposition of all states in the z basis as gs
-        H_i = bitflipnoise()
+    
 
 
     ########### NOT REALLY USED
+    elif initial_hamiltonian == 'transverse field':
+        H_i = transverse_field()
+
+    elif initial_hamiltonian == 'all spins up': ## parallel magnetic field plus some energy shift so that energies are contained within [0, N_qubits]
+        H_i = all_spins_up()
+
+    elif initial_hamiltonian == 'bit flip noisy': # what happens when we designate directly an equal superposition of all states in the z basis as gs
+        H_i = bitflipnoise()
+
     elif initial_hamiltonian == 'phase flip noisy': # what happens when we designate directly the state with all spins pointing up as gs
-        phi0 = np.zeros(dims_matrices)  ## all spins up
-        phi0[0] = np.sqrt(dims_matrices)
-        H_i = np.eye(dims_matrices) - 1/dims_matrices *(np.kron(phi0, phi0).reshape(dims_matrices, dims_matrices))
+        H_i = phaseflipnoise()
 
     elif initial_hamiltonian == 'disrespect bit structure':
-        phi0 = np.zeros(dims_matrices) 
-        phi0[-1] = np.sqrt(dims_matrices/3)
-        phi0[0] = np.sqrt(dims_matrices/3) 
-        phi0[4] = np.sqrt(dims_matrices/3)
-        ### write phi0 as matrix, see ptraces ############################################
-        H_i = np.eye(dims_matrices) - 1/dims_matrices *(np.kron(phi0, phi0).reshape(dims_matrices, dims_matrices))
-
+        H_i = disrespect_bit_struct()
+        
     elif initial_hamiltonian == 'bit structure':
-        H_i = np.zeros((dims_matrices, dims_matrices), dtype = 'complex128')
-        I = np.eye(dims_matrices)
-        for i in range(N_qubits):
-            H_i += 0.5 * (I - Sigma_dict[i][1])
+        H_i = bit_struct()
 
     elif initial_hamiltonian == 'staggered': ### from "Speedup of the Quantum Adiabatic Algorithm using Delocalization Catalysis", C. Cao et al (Dec. 2020)
-        H_i = np.zeros((dims_matrices, dims_matrices), dtype = 'complex128')
-        for i in range(N_qubits):
-            H_i += (-1)**i * Sigma_dict[i][1] 
+        H_i = staggered()
         
     else:
         print('You have not  selected any of the available initial Hamiltonians')
@@ -549,11 +362,7 @@ def define_Hs(N_qubits, final_hamiltonian, initial_hamiltonian, annealing_schedu
     def null(s):
         return 0
 
-
-
-
-    ## Annealing schedule --> linear / optimised Grover / force Landau 
-    ## catalyst --> parabola
+    ############## annealin_schedule
     if annealing_schedule == 'linear':
         A = linear_i
         B = linear_f
@@ -571,8 +380,7 @@ def define_Hs(N_qubits, final_hamiltonian, initial_hamiltonian, annealing_schedu
         def B(s):
             return 1 - A(s)
 
-    ############## we never use this one anymore either
-    elif annealing_schedule == 'force Landau':
+    elif annealing_schedule == 'force Landau': ### we never use this one anymore either
         def A(s):
             return 1 - 0.5 * (np.tanh(5*(s-0.5)) + 1) ### Forcing Landau levels toghether
         def B(s):
@@ -598,9 +406,7 @@ def define_Hs(N_qubits, final_hamiltonian, initial_hamiltonian, annealing_schedu
 
 
 
-
-
-    ## Catalyst Hamiltonian 
+    ############################################ Catalyst Hamiltonian 
     if catalyst_interaction == 'Sigmas':
         H_catalyst = Sigmas()
 
@@ -608,16 +414,15 @@ def define_Hs(N_qubits, final_hamiltonian, initial_hamiltonian, annealing_schedu
     elif catalyst_interaction == 'bit flip noise':
         H_catalyst = bitflipnoise()
 
-    elif catalyst_interaction == 'spin network X':
-        H_catalyst = spin_network_X()
-        # H_catalyst = spinnetworkX_perp()
+    elif catalyst_interaction == 'Ising quantum':
+        H_catalyst = ising_quantum(seedJ_cat, seedW_cat, h_mean_cat, W_cat)
 
     elif catalyst_interaction == 'None':
         H_catalyst = np.zeros((dims_matrices, dims_matrices), 'complex128')
 
 
     if return_HiHf == True:
-        return Hamiltonian_factory(H_i, H_f, A, B, H_catalyst, C), H_i, H_f, H_catalyst ## break deg, one ancilla per clause
+        return Hamiltonian_factory(H_i, H_f, A, B, H_catalyst, C), H_i, H_f, H_catalyst
     else:
         return Hamiltonian_factory(H_i, H_f, A, B, H_catalyst, C)
 
@@ -689,70 +494,3 @@ def get_corrections(H0, H1, H2, dims_matrices, precision):
     E2 = np.round(E2, precision)
     return E0, E1, E2
 
-
-
-### EQUIVALENT WAYS OF BUILDING THEM
-# N_qubits = 5
-# dims_matrices = 2**N_qubits
-
-# phi0 = np.zeros(dims_matrices)  ## all spins up
-# phi0[0] = np.sqrt(dims_matrices)
-# H_i = np.eye(dims_matrices) - 1/dims_matrices *(np.kron(phi0, phi0).reshape(dims_matrices, dims_matrices))
-# print('gs ', eigh(H_i)[1][:,0])
-# print('initial_hamiltonian all spins up (previous) \n', H_i)
-
-# sigx = Sz
-# prod = np.kron(0.5 *(np.eye(2) + sigx), 0.5 *(np.eye(2) + sigx)).reshape(4, 4)
-# for i in range(2, N_qubits):
-#     prod = np.kron(prod, 0.5 *(np.eye(2) + sigx)).reshape(2**(i+1), 2**(i+1))
-# I = np.eye(dims_matrices)
-# Hi = I - prod
-
-# print('gs prev all spins up (Sz construction) \n', eigh(Hi)[1][:,0])
-# print('prev all spins up (Sz construction) \n', Hi)
-
-
-# I = np.eye(dims_matrices)
-# Hii = np.zeros((dims_matrices, dims_matrices), dtype = 'complex128')
-# for i in range(N_qubits):
-#     Hii += 0.5 * (I - Sigma(0, i, N_qubits))
-# print('gs true all spins up \n', eigh(Hii)[1][:,0])
-# print('all spins up \n', Hii)
-
-# I = np.eye(dims_matrices)
-# Hii = np.zeros((dims_matrices, dims_matrices), dtype = 'complex128')
-# for i in range(N_qubits):
-#     Hii +=  - Sigma(0, i, N_qubits)
-# print('gs z field to everyone \n', eigh(Hii)[1][:,0])
-# print('z field to everyone \n', Hii)
-
-# exit()
-
-# H_catalyst = np.zeros((dims_matrices, dims_matrices), 'complex128')
-# for i in range(N_qubits):
-#     H_catalyst += Sigma(1, i, N_qubits)
-# print('gs Sigmasx \n', eigh(H_catalyst)[1][:,0])
-# print('Sigmas \n ', H_catalyst)
-
-
-### IN CONCLUSION: the 'transverse field initial Hamiltonian we have been using and the one defined as in Hii, which we find in the literature, 
-#### have the same ground state (of course, we built our transverse field by directly aiming to the equal superposition of all spins as gs), but
-##### the higher energy levels differ. This, of course, has a strong impact on the structure of the whole annealing process. The 'transverse field'
-###### Hamiltonian as we have defined it actually corresponds to to random, uncorrelated bit flip noise acting on each of the spins individually.
-# exit()
-
-# N_qubits = 5
-# dims_matrices = 2**N_qubits
-# I = np.eye(dims_matrices)
-# Hii = np.zeros((dims_matrices, dims_matrices), dtype = 'complex128')
-# for i in range(N_qubits):
-#     Hii += 0.5 * (I - Sigma(0, i, N_qubits))
-# gs = eigh(Hii)[1][:, 0]
-# rhogs = np.kron(gs, gs).reshape(dims_matrices, dims_matrices)
-# # rhogs_qt = np2qt(rhogs, N_qubits)
-# S = np.zeros((dims_matrices, dims_matrices), dtype = 'complex128')
-# for i in range(N_qubits):
-#     S += Sigma(0, i, N_qubits)
-# print(np.trace(np.dot(S, rhogs)))
-
-# exit()
