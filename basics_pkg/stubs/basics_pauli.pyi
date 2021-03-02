@@ -32,14 +32,6 @@ def Sigma(coord, n_spin, N):  ##GET THE SIGMA MATRIX ACTING ON AN ARBITRARY SPIN
 
 
 
-def rotation_spins(angles, axis = np.array([0, 1, 0])): ### angles must be a vector of length = N_qubits containing the rotation applied to each one of them
-    for i, th in enumerate(angles):
-        if i == 0:
-            R = np.cos(0.5*th) * np.eye(2) - 1j * np.sin(0.5*th) * (axis[0] * Sx + axis[1] * Sy + axis[2] * Sz)
-        else:
-            rot = np.cos(0.5*th) * np.eye(2) - 1j * np.sin(0.5*th) * (axis[0] * Sx + axis[1] * Sy + axis[2] * Sz)
-            R = np.kron(R, rot)
-    return R
 
 
 def arbitrary_rotation_spins(N_spins, axis = np.array([0, 1, 0]), amplitude = 1):
